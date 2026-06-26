@@ -2,6 +2,7 @@
   "name": "meu-jardim-abc",
   "version": "0.1.0",
   "private": true,
+  "main": "server.js",
   "type": "module",
   "scripts": {
     "dev": "nodemon server.js",
