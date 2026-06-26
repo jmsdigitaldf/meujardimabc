@@ -1,0 +1,24 @@
+{
+  "name": "meu-jardim-abc",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "nodemon server.js",
+    "start": "node server.js",
+    "check": "node --check app.js && node --check server.js",
+    "db:setup": "powershell -ExecutionPolicy Bypass -File ./database/setup-local.ps1",
+    "db:setup:linux": "./database/setup-local.sh",
+    "db:setup:js": "node database/setup-db.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.108.2",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "pg": "^8.22.0",
+    "ws": "^8.21.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  }
+}

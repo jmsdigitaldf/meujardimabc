@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Meu Jardim ABC: O aplicativo oficial da comunidade do Jardim ABC. Notícias, comércio, ônibus e mural local."
+    />
+    <title>Meu Jardim ABC</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <!-- Welcome Overlay (UX Startup Question) -->
+    <div id="welcomeOverlay" class="welcome-overlay hidden">
+      <div class="welcome-card animate-fade-in">
+        <h2>O que você precisa hoje?</h2>
+        <p>Selecione uma opção para ir direto ao que interessa no Jardim ABC.</p>
+        <div class="welcome-options">
+          <button class="welcome-opt-btn" data-action="explore">
+            <span class="shortcut-icon">🛒</span>
+            <span>Comprar produtos</span>
+          </button>
+          <button class="welcome-opt-btn" data-action="publish">
+            <span class="shortcut-icon">➕</span>
+            <span>Vender ou anunciar</span>
+          </button>
+          <button class="welcome-opt-btn" data-action="bus">
+            <span class="shortcut-icon">🚌</span>
+            <span>Ver horários de ônibus</span>
+          </button>
+          <button class="welcome-opt-btn" data-action="news">
+            <span class="shortcut-icon">📰</span>
+            <span>Ver notícias do bairro</span>
+          </button>
+          <button class="welcome-opt-btn" data-action="home">
+            <span class="shortcut-icon">📍</span>
+            <span>Acessar o Painel Geral</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- App Shell -->
+    <div class="app-shell">
+      <header class="topbar">
+        <button class="brand-button" data-view="home" aria-label="Ir para o início">
+          <span class="brand-mark">ABC</span>
+          <span class="brand-info">
+            <strong>Meu Jardim ABC</strong>
+            <small>Tudo do bairro em um só lugar</small>
+          </span>
+        </button>
+
+        <div class="top-actions">
+          <button class="icon-button" id="toggleUserRole" title="Alternar perfil de teste">
+            👤
+          </button>
+        </div>
+      </header>
+
+      <!-- Main Content Area -->
+      <main id="app" class="app-content" tabindex="-1"></main>
+
+      <!-- Bottom Navigation (Exactly 5 buttons) -->
+      <nav class="bottom-nav" aria-label="Navegação principal">
+        <button class="nav-item is-active" data-view="home">
+          <span class="nav-icon">🏠</span>
+          <span>Início</span>
+        </button>
+        <button class="nav-item" data-view="explore">
+          <span class="nav-icon">🛒</span>
+          <span>Mercado</span>
+        </button>
+        <button class="nav-item" data-view="news">
+          <span class="nav-icon">📰</span>
+          <span>Notícias</span>
+        </button>
+        <button class="nav-item" data-view="bus">
+          <span class="nav-icon">🚌</span>
+          <span>Ônibus</span>
+        </button>
+        <button class="nav-item" data-view="profile">
+          <span class="nav-icon">👤</span>
+          <span>Perfil</span>
+        </button>
+      </nav>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>
