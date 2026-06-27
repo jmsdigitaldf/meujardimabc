@@ -34,9 +34,7 @@ async function initSupabase() {
     if (config.supabaseUrl && config.supabaseAnonKey) {
       supabaseClient = window.supabase.createClient(config.supabaseUrl, config.supabaseAnonKey);
       
-      const { data: { session } } = await supabaseClient.auth.getSession();
-      currentSession = session;
-      currentUser = session?.user || null;
+      await supabaseClient.auth.getSession();
       
       supabaseClient.auth.onAuthStateChange(async (event, session) => {
         const previousSession = currentSession;
