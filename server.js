@@ -136,7 +136,8 @@ app.use(async (req, res, next) => {
       if (user && !error) {
         req.userId = user.id;
         req.user = user;
-        // Não chamamos syncUserToDatabase aqui de forma automática para novos usuários
+      } else {
+        console.warn("Aviso: Supabase não retornou usuário para o token. Erro:", error ? error.message : "Nenhum erro retornado");
       }
     } catch (err) {
       console.error("Erro na verificação do token Supabase:", err);

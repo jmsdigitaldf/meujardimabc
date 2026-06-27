@@ -39,13 +39,21 @@ async function initSupabase() {
       currentUser = session?.user || null;
       
       supabaseClient.auth.onAuthStateChange(async (event, session) => {
+        const previousSession = currentSession;
         currentSession = session;
         currentUser = session?.user || null;
         
         if (event === 'SIGNED_OUT') {
-          renderAuthScreen();
+          const currentView = document.querySelector('.nav-item.is-active')?.dataset.view || 'home';
+          if (currentView !== 'home') {
+            renderAuthScreen();
+          } else {
+            renderHome();
+          }
         } else if (event === 'SIGNED_IN' || event === 'USER_UPDATED') {
-          setView('home');
+          if (!previousSession) {
+            setView('home');
+          }
         }
       });
     }
