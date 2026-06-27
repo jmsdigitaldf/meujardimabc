@@ -45,14 +45,15 @@ async function initSupabase() {
         
         if (event === 'SIGNED_OUT') {
           const currentView = document.querySelector('.nav-item.is-active')?.dataset.view || 'home';
-          if (currentView !== 'home') {
+          const publicViews = ['home', 'explore', 'news', 'bus'];
+          if (!publicViews.includes(currentView)) {
             renderAuthScreen();
           } else {
-            renderHome();
+            setView(currentView);
           }
         } else if (event === 'SIGNED_IN' || event === 'USER_UPDATED') {
           if (!previousSession) {
-            setView('home');
+            await handlePostAuthRedirect();
           }
         }
       });
@@ -156,8 +157,8 @@ function renderCompleteProfileScreen() {
 
       if (res.ok) {
         if (msgContainer) msgContainer.innerHTML = '<div class="auth-message success">Cadastro concluído! Carregando...</div>';
-        setTimeout(() => {
-          setView('home');
+        setTimeout(async () => {
+          await handlePostAuthRedirect();
         }, 1000);
       } else {
         const body = await res.json().catch(() => ({}));
@@ -320,7 +321,8 @@ function renderAuthScreen() {
   }
 }
 
-// Mostra a tela de boas-vindas do UX Startup apenas uma vez por sessão
+// Mostra a tela de boas-vindas do UX Startup apenas uma vez por sessão (DESATIVADO temporariamente para futuro uso como notificações do admin)
+/*
 if (!sessionStorage.getItem('welcomeShown') && !window.location.search.includes('user=')) {
   const welcomeOverlay = document.querySelector('#welcomeOverlay');
   if (welcomeOverlay) {
@@ -339,6 +341,7 @@ if (!sessionStorage.getItem('welcomeShown') && !window.location.search.includes(
     });
   }
 }
+*/
 
 // Helper genérico para buscar dados da API adicionando cabeçalhos de autenticação
 async function apiFetch(url, options = {}) {
@@ -511,10 +514,6 @@ async function renderHome() {
 
   // Atalho específico do Mural
   document.querySelector('#btnShortcutMural')?.addEventListener('click', () => {
-    if (!currentSession && !userParam) {
-      renderAuthScreen();
-      return;
-    }
     renderNews('Mural');
     document.querySelectorAll('.bottom-nav .nav-item').forEach(item => {
       item.classList.toggle('is-active', item.dataset.view === 'news');
@@ -602,14 +601,16 @@ async function renderExplore(searchText = '') {
     });
 
     // Marcar anúncios que já estão favoritados
-    const favs = await apiFetch('/api/favorites') || [];
-    favs.forEach(f => {
-      const btn = grid.querySelector(`.favorite-btn[data-fav-id="${f.id}"]`);
-      if (btn) {
-        btn.textContent = '❤️';
-        btn.classList.add('active');
-      }
-    });
+    if (currentSession || userParam) {
+      const favs = await apiFetch('/api/favorites') || [];
+      favs.forEach(f => {
+        const btn = grid.querySelector(`.favorite-btn[data-fav-id="${f.id}"]`);
+        if (btn) {
+          btn.textContent = '❤️';
+          btn.classList.add('active');
+        }
+      });
+    }
   }
 
   app.innerHTML = `
@@ -953,15 +954,24 @@ async function renderProfile() {
 
 // --- DETALHES DE ANÚNCIO (MARKETPLACE) ---
 async function showAdDetails(id) {
-  if (!currentSession && !userParam) {
-    renderAuthScreen();
-    return;
-  }
   const ad = await apiFetch(`/api/ads/${id}`);
   if (!ad) {
     alert("Erro ao carregar detalhes do anúncio.");
     return;
   }
+
+  if (ad.is_featured && !currentSession && !userParam) {
+    setPostAuthRedirect({ type: 'adDetails', id: id });
+    renderAuthScreen();
+    return;
+  }
+
+  const bottomNav = document.querySelector('.bottom-nav');
+  if (bottomNav) bottomNav.style.display = 'flex';
+
+  navItems.forEach(item => {
+    item.classList.toggle('is-active', item.dataset.view === 'explore');
+  });
 
   const price = (ad.price_cents / 100).toFixed(2).replace('.', ',');
   const images = ad.image_urls && ad.image_urls.length > 0 ? ad.image_urls : ['https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=800&q=80'];
@@ -1016,10 +1026,6 @@ async function showAdDetails(id) {
 
 // --- DETALHES DE NOTÍCIA ---
 async function showNewsDetails(id) {
-  if (!currentSession && !userParam) {
-    renderAuthScreen();
-    return;
-  }
   app.innerHTML = '<div class="text-center mt-4">Carregando detalhes...</div>';
   const n = await apiFetch(`/api/news/${id}`);
 
@@ -1051,6 +1057,15 @@ async function showNewsDetails(id) {
 
 // --- FORMULÁRIO DE PUBLICAÇÃO ---
 function showPublishForm(initialType = "Comprar e Vender") {
+  if (!currentSession && !userParam) {
+    setPostAuthRedirect({ type: 'publish', initialType: initialType });
+    renderAuthScreen();
+    return;
+  }
+
+  const bottomNav = document.querySelector('.bottom-nav');
+  if (bottomNav) bottomNav.style.display = 'flex';
+
   const categories = ['Eletrônicos', 'Veículos', 'Casa', 'Roupas', 'Alimentação', 'Serviços', 'Pets', 'Infantil', 'Outros'];
   let selectedImagesBase64 = [];
 
@@ -1775,9 +1790,50 @@ function showAddNewsForm() {
   });
 }
 
+// --- MANIPULAÇÃO DE REDIRECIONAMENTO PÓS-AUTENTICAÇÃO ---
+function setPostAuthRedirect(target) {
+  sessionStorage.setItem('postAuthRedirect', JSON.stringify(target));
+}
+
+function getAndClearPostAuthRedirect() {
+  const data = sessionStorage.getItem('postAuthRedirect');
+  if (data) {
+    sessionStorage.removeItem('postAuthRedirect');
+    try {
+      return JSON.parse(data);
+    } catch (e) {
+      return null;
+    }
+  }
+  return null;
+}
+
+async function handlePostAuthRedirect() {
+  const target = getAndClearPostAuthRedirect();
+  if (!target) {
+    setView('home');
+    return;
+  }
+  
+  if (target.type === 'view') {
+    await setView(target.name);
+  } else if (target.type === 'adDetails') {
+    await showAdDetails(target.id);
+  } else if (target.type === 'newsDetails') {
+    await showNewsDetails(target.id);
+  } else if (target.type === 'publish') {
+    showPublishForm(target.initialType);
+  } else {
+    await setView('home');
+  }
+}
+
 // --- MECANISMO DE NAVEGAÇÃO PRINCIPAL ---
 async function setView(view) {
-  if (view !== 'home' && !currentSession && !userParam) {
+  const publicViews = ['home', 'explore', 'news', 'bus'];
+
+  if (!publicViews.includes(view) && !currentSession && !userParam) {
+    setPostAuthRedirect({ type: 'view', name: view });
     renderAuthScreen();
     return;
   }
@@ -1821,5 +1877,13 @@ document.body.addEventListener("click", (event) => {
 
 // Inicialização segura com Supabase e carregamento da Home
 initSupabase().then(() => {
-  setView("home");
+  const activeView = document.querySelector('.nav-item.is-active')?.dataset.view;
+  if (!activeView) {
+    const hasRedirect = sessionStorage.getItem('postAuthRedirect');
+    if (hasRedirect && (currentSession || userParam)) {
+      handlePostAuthRedirect();
+    } else {
+      setView("home");
+    }
+  }
 });
