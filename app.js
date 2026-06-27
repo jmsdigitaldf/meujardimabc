@@ -183,17 +183,7 @@ function renderAuthScreen() {
 
         <div id="authMessageContainer"></div>
 
-        <button class="google-btn" id="btnGoogleAuth">
-          <svg class="google-icon" viewBox="0 0 24 24">
-            <path fill="#EA4335" d="M12 5.04c1.67 0 3.2.58 4.38 1.69l3.27-3.27C17.68 1.54 14.98 1 12 1 7.35 1 3.37 3.65 1.39 7.56l3.85 2.99c.92-2.77 3.5-4.8 6.76-4.8z"/>
-            <path fill="#4285F4" d="M23.49 12.27c0-.81-.07-1.59-.2-2.35H12v4.51h6.47c-.29 1.48-1.14 2.73-2.4 3.58l3.74 2.9c2.18-2.01 3.68-4.97 3.68-8.64z"/>
-            <path fill="#FBBC05" d="M5.24 14.28a7.19 7.19 0 0 1 0-4.56L1.39 6.73a11.94 11.94 0 0 0 0 10.54l3.85-2.99z"/>
-            <path fill="#34A853" d="M12 23c3.24 0 5.97-1.07 7.96-2.91l-3.74-2.9c-1.1.74-2.51 1.18-4.22 1.18-3.26 0-5.84-2.03-6.76-4.8l-3.85 2.99C3.37 20.35 7.35 23 12 23z"/>
-          </svg>
-          Entrar com Google
-        </button>
 
-        <div class="divider">ou</div>
 
         <div class="auth-tabs">
           <button class="auth-tab active" id="tabLogin">Entrar</button>
@@ -260,14 +250,7 @@ function renderAuthScreen() {
     frmLogin.classList.add('hidden');
   });
 
-  document.querySelector('#btnGoogleAuth').addEventListener('click', async () => {
-    if (!supabaseClient) return showAuthMsg("Erro de inicialização.", "error");
-    const { error } = await supabaseClient.auth.signInWithOAuth({
-      provider: 'google',
-      options: { redirectTo: window.location.origin }
-    });
-    if (error) showAuthMsg(error.message, "error");
-  });
+
 
   frmLogin.addEventListener('submit', async (e) => {
     e.preventDefault();
