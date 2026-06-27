@@ -807,6 +807,28 @@ body {
   color: var(--text-muted);
 }
 
+.profile-tier-badge {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  margin-top: 6px;
+}
+.profile-tier-badge.resident {
+  background-color: #f1f3f4;
+  color: #5f6368;
+}
+.profile-tier-badge.business {
+  background-color: rgba(52, 168, 83, 0.1);
+  color: #1e8e3e;
+}
+.profile-tier-badge.admin {
+  background-color: rgba(66, 133, 244, 0.1);
+  color: #1a73e8;
+}
+
 .profile-menu-list {
   display: flex;
   flex-direction: column;
@@ -1069,5 +1091,79 @@ body {
   background-color: #E8F5E9;
   color: #2E7D32;
   border: 1px solid #C8E6C9;
+}
+
+/* Custom Modern File Upload */
+.custom-file-upload {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border: 2px dashed var(--border-color);
+  border-radius: 16px;
+  padding: 24px 16px;
+  background-color: rgba(0, 0, 0, 0.01);
+  cursor: pointer;
+  transition: var(--transition);
+  text-align: center;
+  margin-top: 6px;
+}
+
+.custom-file-upload:hover {
+  border-color: var(--primary);
+  background-color: rgba(46, 125, 50, 0.02);
+}
+
+.custom-file-upload .upload-icon {
+  font-size: 32px;
+  margin-bottom: 8px;
+}
+
+.custom-file-upload strong {
+  font-size: 14px;
+  color: var(--text-dark);
+}
+
+.custom-file-upload small {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+#photosPreviewContainer, #adminNewsPhotoPreview {
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+  flex-wrap: wrap;
+}
+
+.photo-preview-item {
+  position: relative;
+  width: 70px;
+  height: 70px;
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  background-size: cover;
+  background-position: center;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.photo-preview-item .remove-btn {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  background: #d32f2f;
+  color: white;
+  border: none;
+  border-radius: 50%;
+  width: 18px;
+  height: 18px;
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  line-height: 1;
 }
 

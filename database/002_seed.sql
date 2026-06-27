@@ -29,121 +29,87 @@ insert into service_categories (name, slug) values
   ('Mecânico', 'mecanico')
 on conflict (slug) do nothing;
 
-with inserted_user as (
-  insert into users (phone, email, status)
-  values ('61999990000', 'morador@jardimabc.local', 'active')
-  on conflict (email) do update set status = excluded.status
-  returning id
-)
-insert into profiles (user_id, full_name, display_name, neighborhood, gender, whatsapp)
-select id, 'Moradora Exemplo', 'Moradora', 'Jardim ABC', 'female', '61999990000'
-from inserted_user
-on conflict (user_id) do nothing;
 
-insert into user_roles (user_id, role, status)
-select id, 'resident', 'active' from users where email = 'morador@jardimabc.local'
-on conflict (user_id, role) do nothing;
-
-with driver_user as (
-  insert into users (phone, email, status)
-  values ('61999991111', 'motorista@jardimabc.local', 'active')
-  on conflict (email) do update set status = excluded.status
-  returning id
-)
-insert into profiles (user_id, full_name, display_name, neighborhood, gender, whatsapp)
-select id, 'Ana Motorista', 'Ana', 'Jardim ABC', 'female', '61999991111'
-from driver_user
-on conflict (user_id) do nothing;
-
-insert into user_roles (user_id, role, status)
-select id, 'resident', 'active' from users where email = 'motorista@jardimabc.local'
-on conflict (user_id, role) do nothing;
-
-insert into user_roles (user_id, role, status, approved_at)
-select id, 'driver', 'active', now() from users where email = 'motorista@jardimabc.local'
-on conflict (user_id, role) do nothing;
-
-insert into driver_profiles (
-  user_id,
-  document_status,
-  vehicle_model,
-  vehicle_plate,
-  vehicle_color,
-  is_online,
-  is_available_for_women_only_request,
-  average_rating
-)
-select id, 'approved', 'Fiat Argo', 'ABC1D23', 'Prata', true, true, 4.9
-from users
-where email = 'motorista@jardimabc.local'
-on conflict (user_id) do nothing;
-
-with owner_user as (
-  insert into users (phone, email, status)
-  values ('61999992222', 'empresa@jardimabc.local', 'active')
-  on conflict (email) do update set status = excluded.status
-  returning id
-)
-insert into profiles (user_id, full_name, display_name, neighborhood, gender, whatsapp)
-select id, 'Silva Mercado LTDA', 'Mercado Silva', 'Jardim ABC', 'prefer_not_to_say', '61999992222'
-from owner_user
-on conflict (user_id) do nothing;
-
-insert into user_roles (user_id, role, status)
-select id, 'resident', 'active' from users where email = 'empresa@jardimabc.local'
-on conflict (user_id, role) do nothing;
-
-insert into user_roles (user_id, role, status, approved_at)
-select id, 'business_owner', 'active', now() from users where email = 'empresa@jardimabc.local'
-on conflict (user_id, role) do nothing;
-
-insert into businesses (
-  owner_user_id,
-  category_id,
-  name,
-  slug,
-  description,
-  whatsapp,
-  address_text,
-  opening_hours,
-  is_verified,
-  is_featured,
-  status
-)
-select
-  u.id,
-  bc.id,
-  'Mercado Silva',
-  'mercado-silva',
-  'Mercado local com entrega no Jardim ABC.',
-  '61999992222',
-  'Avenida Principal, Jardim ABC',
-  '{"seg-sex":"07:00-20:00","sab":"07:00-18:00"}',
-  true,
-  true,
-  'approved'
-from users u
-join business_categories bc on bc.slug = 'mercado'
-where u.email = 'empresa@jardimabc.local'
-on conflict (slug) do nothing;
-
-insert into products (business_id, name, description, price_cents, stock_quantity, is_active)
-select id, 'Cesta básica local', 'Itens essenciais para entrega no bairro.', 12990, 20, true
-from businesses
-where slug = 'mercado-silva'
+-- Inserir Linhas de Ônibus
+insert into bus_routes (name, description) values
+  ('8002 - Jardim ABC / Rodoviária do Plano Piloto (via Gilberto Salomão)', 'Linha Jardim ABC para a Rodoviária do Plano Piloto via Lago Sul / comércio do Gilberto Salomão.'),
+  ('8003 - Jardim ABC / Rodoviária do Plano Piloto (via L2 Sul / Esplanada)', 'Linha Jardim ABC para a Rodoviária do Plano Piloto via L2 Sul e Esplanada dos Ministérios.'),
+  ('8004 - Jardim ABC / W3 Sul (via QI 15 / Aeroporto)', 'Linha Jardim ABC para a W3 Sul via QI 15 do Lago Sul e balão do Aeroporto.'),
+  ('8015.1 - Jardim ABC / Rodoviária do Plano Piloto (via Ponte JK)', 'Linha rápida Jardim ABC para a Rodoviária do Plano Piloto via Ponte JK.'),
+  ('8076 - Jardim ABC / Cidade Ocidental (Integração)', 'Linha de integração entre o Jardim ABC e o centro da Cidade Ocidental.'),
+  ('0.170 - Viação Barreiros', 'Sentido de circulação: Barreiros / Rodoviária do Plano Piloto (Via DF-140 / Jardim Botânico).'),
+  ('170.1 - Viação Barreiros', 'Sentido de circulação: Barreiros / Rodoviária do Plano Piloto (Via São Sebastião / Ponte Costa e Silva).'),
+  ('170.2 - Viação Barreiros', 'Sentido de circulação: Barreiros / Rodoviária do Plano Piloto (Via Ponte JK / L2 Sul).'),
+  ('170.4 - Viação Barreiros', 'Sentido de circulação: Barreiros / Rodoviária do Plano Piloto (Via W3 Sul / Esplanada).'),
+  ('170.5 - Viação Barreiros', 'Sentido de circulação: Barreiros / Rodoviária do Plano Piloto (Via Lago Sul / Gilberto Salomão).'),
+  ('170.6 - Viação Barreiros', 'Sentido de circulação: Barreiros / Rodoviária do Plano Piloto (Via Esplanada / L2 Norte).'),
+  ('Micro-ônibus', 'Sentido de circulação: Jardim ABC / Cidade Ocidental / Valparaíso / Novo Gama.')
 on conflict do nothing;
 
-insert into bus_routes (name, description)
-values ('Jardim ABC / Centro', 'Linha principal do Jardim ABC para o Centro')
-on conflict do nothing;
+-- Inserir Horários (8002)
+insert into bus_schedules (route_id, departure_time, notes)
+select id, t::time, 'Segunda a Sexta' from bus_routes, unnest(array['06:00', '06:40', '07:20', '08:00', '12:00', '13:30', '17:10', '18:30', '19:50']) t
+where name = '8002 - Jardim ABC / Rodoviária do Plano Piloto (via Gilberto Salomão)';
 
-insert into bus_schedules (route_id, departure_time, weekdays)
-select id, '07:30', array[1,2,3,4,5] from bus_routes where name = 'Jardim ABC / Centro'
-on conflict do nothing;
+-- Inserir Horários (8003)
+insert into bus_schedules (route_id, departure_time, notes)
+select id, t::time, 'Segunda a Sexta' from bus_routes, unnest(array['06:15', '07:00', '08:30', '12:30', '14:00', '16:45', '17:45', '19:00']) t
+where name = '8003 - Jardim ABC / Rodoviária do Plano Piloto (via L2 Sul / Esplanada)';
 
-insert into bus_schedules (route_id, departure_time, weekdays)
-select id, '08:10', array[1,2,3,4,5] from bus_routes where name = 'Jardim ABC / Centro'
-on conflict do nothing;
+-- Inserir Horários (8004)
+insert into bus_schedules (route_id, departure_time, notes)
+select id, t::time, 'Segunda a Sexta' from bus_routes, unnest(array['05:50', '06:30', '07:15', '08:15', '11:45', '13:00', '17:30', '18:15']) t
+where name = '8004 - Jardim ABC / W3 Sul (via QI 15 / Aeroporto)';
+
+-- Inserir Horários (8015.1)
+insert into bus_schedules (route_id, departure_time, notes)
+select id, t::time, 'Segunda a Sexta' from bus_routes, unnest(array['06:10', '07:10', '08:20', '12:15', '13:45', '17:00', '18:00', '19:15']) t
+where name = '8015.1 - Jardim ABC / Rodoviária do Plano Piloto (via Ponte JK)';
+
+-- Inserir Horários (8076)
+insert into bus_schedules (route_id, departure_time, notes)
+select id, t::time, 'Segunda a Sexta' from bus_routes, unnest(array['05:30', '06:30', '07:30', '08:30', '10:30', '12:30', '14:30', '16:30', '17:30', '18:30', '19:30', '20:30']) t
+where name = '8076 - Jardim ABC / Cidade Ocidental (Integração)';
+
+-- Inserir Horários (0.170)
+insert into bus_schedules (route_id, departure_time, notes)
+select id, t::time, 'Segunda a Sexta' from bus_routes, unnest(array['06:10', '17:00']) t
+where name = '0.170 - Viação Barreiros';
+
+-- Inserir Horários (170.1)
+insert into bus_schedules (route_id, departure_time, notes)
+select id, t::time, 'Segunda a Sexta' from bus_routes, unnest(array['05:15', '07:30', '17:35']) t
+where name = '170.1 - Viação Barreiros';
+
+-- Inserir Horários (170.2)
+insert into bus_schedules (route_id, departure_time, notes)
+select id, t::time, 'Segunda a Sexta' from bus_routes, unnest(array['05:45', '18:00']) t
+where name = '170.2 - Viação Barreiros';
+
+-- Inserir Horários (170.4)
+insert into bus_schedules (route_id, departure_time, notes)
+select id, t::time, 'Segunda a Sexta' from bus_routes, unnest(array['06:25']) t
+where name = '170.4 - Viação Barreiros';
+
+-- Inserir Horários (170.5)
+insert into bus_schedules (route_id, departure_time, notes)
+select id, t::time, 'Segunda a Sexta' from bus_routes, unnest(array['12:00']) t
+where name = '170.5 - Viação Barreiros';
+
+-- Inserir Horários (170.6)
+insert into bus_schedules (route_id, departure_time, notes)
+select id, t::time, 'Segunda a Sexta' from bus_routes, unnest(array['18:30']) t
+where name = '170.6 - Viação Barreiros';
+
+-- Inserir Horários (Micro-ônibus)
+insert into bus_schedules (route_id, departure_time, notes)
+select id, t::time, 'Segunda a Sexta' from bus_routes, unnest(array[
+  '06:00', '06:20', '06:40', '07:00', '07:20', '07:40', '08:00', '08:20', '08:40', '09:00',
+  '10:00', '11:00', '12:00', '12:20', '12:40', '13:00', '13:20', '13:40', '14:00', '15:00',
+  '16:00', '16:20', '16:40', '17:00', '17:20', '17:40', '18:00', '18:20', '18:40', '19:00',
+  '20:00', '21:00', '22:00'
+]) t
+where name = 'Micro-ônibus';
 
 insert into news (title, slug, summary, body, category, is_urgent, status, published_at)
 values (
@@ -157,21 +123,5 @@ values (
   now()
 )
 on conflict (slug) do nothing;
-
--- Usuário Admin (Jeisson)
-with admin_user as (
-  insert into users (phone, email, status)
-  values ('61999993333', 'admin@jardimabc.local', 'active')
-  on conflict (email) do update set status = excluded.status
-  returning id
-)
-insert into profiles (user_id, full_name, display_name, neighborhood, gender, whatsapp)
-select id, 'Jeisson Administrador', 'Jeisson', 'Jardim ABC', 'male', '61999993333'
-from admin_user
-on conflict (user_id) do nothing;
-
-insert into user_roles (user_id, role, status, approved_at)
-select id, 'admin', 'active', now() from users where email = 'admin@jardimabc.local'
-on conflict (user_id, role) do nothing;
 
 commit;

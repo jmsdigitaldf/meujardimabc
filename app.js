@@ -54,6 +54,113 @@ async function initSupabase() {
   }
 }
 
+async function checkProfileRegistration() {
+  if (!currentSession) return true; // Permite a Home pública sem sessão
+  
+  try {
+    const token = currentSession.access_token;
+    const headers = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    
+    const userQuery = userParam ? `?user=${userParam}` : '';
+    const res = await fetch(`/api/profile${userQuery}`, { headers });
+    
+    if (res.status === 404) {
+      const body = await res.json().catch(() => ({}));
+      if (body.isRegistered === false) {
+        renderCompleteProfileScreen();
+        return false;
+      }
+    }
+    return true;
+  } catch (err) {
+    console.error("Erro ao verificar registro de perfil:", err);
+    return true;
+  }
+}
+
+function renderCompleteProfileScreen() {
+  const bottomNav = document.querySelector('.bottom-nav');
+  if (bottomNav) bottomNav.style.display = 'none';
+
+  const meta = currentUser?.user_metadata || {};
+  const email = currentUser?.email || '';
+  const fullName = meta.full_name || meta.name || '';
+  const displayName = meta.custom_display_name || meta.display_name || fullName.split(' ')[0] || '';
+
+  app.innerHTML = `
+    <div class="auth-container animate-fade-in">
+      <div class="auth-card">
+        <div class="auth-header">
+          <h2>Conclua seu Cadastro</h2>
+          <p>Para continuar, confirme seus dados e informe o número de WhatsApp:</p>
+        </div>
+
+        <div id="completeProfileMsgContainer"></div>
+
+        <form id="frmCompleteProfile">
+          <div class="field">
+            <span>Nome Completo</span>
+            <input type="text" id="cpFullName" value="${fullName}" placeholder="Nome Sobrenome" required />
+          </div>
+          <div class="field">
+            <span>Apelido (Como quer ser chamado)</span>
+            <input type="text" id="cpDisplayName" value="${displayName}" placeholder="Apelido" required />
+          </div>
+          <div class="field">
+            <span>E-mail</span>
+            <input type="email" id="cpEmail" value="${email}" disabled style="background-color: #f1f3f4; cursor: not-allowed;" />
+          </div>
+          <div class="field">
+            <span>Whatsapp (DDD + Número)</span>
+            <input type="tel" id="cpWhatsapp" placeholder="Ex: 61999999999" required />
+          </div>
+          <div class="field">
+            <span>Bairro</span>
+            <input type="text" id="cpNeighborhood" value="Jardim ABC" disabled style="background-color: #f1f3f4; cursor: not-allowed;" />
+          </div>
+          <button type="submit" class="primary-button w-full mt-4">Salvar e Acessar</button>
+        </form>
+      </div>
+    </div>
+  `;
+
+  document.querySelector('#frmCompleteProfile').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fullName = document.querySelector('#cpFullName').value;
+    const displayName = document.querySelector('#cpDisplayName').value;
+    const whatsapp = document.querySelector('#cpWhatsapp').value;
+
+    const msgContainer = document.querySelector('#completeProfileMsgContainer');
+    if (msgContainer) msgContainer.innerHTML = '<div class="auth-message success">Salvando cadastro...</div>';
+
+    const token = currentSession?.access_token;
+    const headers = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    try {
+      const userQuery = userParam ? `?user=${userParam}` : '';
+      const res = await fetch(`/api/profile${userQuery}`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ fullName, displayName, whatsapp, neighborhood: 'Jardim ABC' })
+      });
+
+      if (res.ok) {
+        if (msgContainer) msgContainer.innerHTML = '<div class="auth-message success">Cadastro concluído! Carregando...</div>';
+        setTimeout(() => {
+          setView('home');
+        }, 1000);
+      } else {
+        const body = await res.json().catch(() => ({}));
+        if (msgContainer) msgContainer.innerHTML = `<div class="auth-message error">${body.error || 'Erro ao salvar perfil.'}</div>`;
+      }
+    } catch (err) {
+      if (msgContainer) msgContainer.innerHTML = `<div class="auth-message error">${err.message}</div>`;
+    }
+  });
+}
+
 // Renderiza a tela de login e cadastro (Google Sign-In + E-mail e Senha)
 function renderAuthScreen() {
   const bottomNav = document.querySelector('.bottom-nav');
@@ -276,11 +383,11 @@ const categoryEmojis = {
 async function renderHome() {
   app.innerHTML = '<div class="text-center mt-4">Carregando portal do bairro...</div>';
   
-  // Carrega informações do perfil e feed inicial
-  const profileData = await apiFetch('/api/profile');
+  // Carrega informações do perfil (apenas se estiver logado) e feed inicial
+  const profileData = (currentSession || userParam) ? await apiFetch('/api/profile') : null;
   const feedData = await apiFetch('/api/feed');
 
-  const greetingName = profileData?.profile?.displayName || 'Morador';
+  const greetingName = profileData?.profile?.display_name || 'Vizinho';
   
   const news = feedData?.news || [];
   const products = feedData?.products || [];
@@ -396,7 +503,10 @@ async function renderHome() {
 
   // Atalho específico do Mural
   document.querySelector('#btnShortcutMural')?.addEventListener('click', () => {
-    // Abre a aba notícias com o filtro Mural
+    if (!currentSession && !userParam) {
+      renderAuthScreen();
+      return;
+    }
     renderNews('Mural');
     document.querySelectorAll('.bottom-nav .nav-item').forEach(item => {
       item.classList.toggle('is-active', item.dataset.view === 'news');
@@ -728,6 +838,7 @@ async function renderProfile() {
   const p = data.profile;
   const stats = data.stats;
   const isAdmin = data.isAdmin;
+  const isBusiness = data.isBusiness;
   const userDisplayName = p.display_name || p.full_name || 'Usuário';
 
   app.innerHTML = `
@@ -742,8 +853,29 @@ async function renderProfile() {
           <h3>${userDisplayName}</h3>
           <p>📞 ${p.phone || p.whatsapp || 'Sem telefone'}</p>
           <p>📍 ${p.neighborhood}</p>
+          <p style="margin-top: 4px;">
+            <span class="profile-tier-badge ${isAdmin ? 'admin' : isBusiness ? 'business' : 'resident'}">
+              ${isAdmin ? '⚙️ Administrador' : isBusiness ? '💼 Perfil Business' : '👤 Perfil Residente'}
+            </span>
+          </p>
         </div>
       </div>
+
+      <!-- Upgrade para Business (se residente) -->
+      ${(!isAdmin && !isBusiness) ? `
+        <div class="upgrade-business-box animate-fade-in" style="background: linear-gradient(135deg, rgba(66, 133, 244, 0.1), rgba(52, 168, 83, 0.1)); border: 1px solid var(--border-color); padding: 18px; border-radius: 16px; margin: 16px 0; text-align: center;">
+          <h4 style="margin: 0 0 6px 0; font-size: 16px; font-weight: 700; color: var(--text-dark);">💼 Ative seu Perfil Business</h4>
+          <p style="margin: 0 0 12px 0; font-size: 13px; color: var(--text-muted);">Publique produtos ilimitados no mercado e múltiplos avisos no mural do bairro.</p>
+          <button class="primary-button w-full" id="btnUpgradeProfileBusiness" style="padding: 10px 16px; background-color: var(--primary);">Ativar Perfil Business</button>
+        </div>
+      ` : ''}
+
+      ${isBusiness ? `
+        <div class="upgrade-business-box animate-fade-in" style="background: rgba(52, 168, 83, 0.08); border: 1px solid rgba(52, 168, 83, 0.2); padding: 16px; border-radius: 16px; margin: 16px 0; text-align: center;">
+          <h4 style="margin: 0 0 4px 0; font-size: 15px; font-weight: 700; color: #2e7d32;">💼 Perfil Business Ativo</h4>
+          <p style="margin: 0; font-size: 12px; color: #388e3c;">Parabéns! Você tem acesso ilimitado para cadastrar produtos e mural.</p>
+        </div>
+      ` : ''}
 
       <!-- Links do Menu do Perfil -->
       <div class="profile-menu-list">
@@ -789,10 +921,34 @@ async function renderProfile() {
   if (isAdmin) {
     document.querySelector('#btnAdminPanel').addEventListener('click', renderAdminPanel);
   }
+
+  if (document.querySelector('#btnUpgradeProfileBusiness')) {
+    document.querySelector('#btnUpgradeProfileBusiness').addEventListener('click', async () => {
+      const token = currentSession?.access_token;
+      const headers = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      
+      const userQuery = userParam ? `?user=${userParam}` : '';
+      const upgradeRes = await fetch(`/api/profile/upgrade-business${userQuery}`, {
+        method: 'POST',
+        headers
+      });
+      if (upgradeRes.ok) {
+        alert("Parabéns! Seu perfil Business foi ativado com sucesso.");
+        renderProfile(); // Recarrega o perfil
+      } else {
+        alert("Erro ao ativar perfil Business.");
+      }
+    });
+  }
 }
 
 // --- DETALHES DE ANÚNCIO (MARKETPLACE) ---
 async function showAdDetails(id) {
+  if (!currentSession && !userParam) {
+    renderAuthScreen();
+    return;
+  }
   const ad = await apiFetch(`/api/ads/${id}`);
   if (!ad) {
     alert("Erro ao carregar detalhes do anúncio.");
@@ -852,6 +1008,10 @@ async function showAdDetails(id) {
 
 // --- DETALHES DE NOTÍCIA ---
 async function showNewsDetails(id) {
+  if (!currentSession && !userParam) {
+    renderAuthScreen();
+    return;
+  }
   app.innerHTML = '<div class="text-center mt-4">Carregando detalhes...</div>';
   const n = await apiFetch(`/api/news/${id}`);
 
@@ -912,9 +1072,14 @@ function showPublishForm(initialType = "Comprar e Vender") {
         </div>
 
         <div class="field" id="adPhotosField">
-          <span>Fotos do Produto (Até 6 fotos)</span>
-          <input type="file" id="pubPhotos" accept="image/*" multiple />
-          <div id="photosPreviewContainer" style="display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap;"></div>
+          <span>Fotos da Publicação</span>
+          <label for="pubPhotos" class="custom-file-upload">
+            <div class="upload-icon">📸</div>
+            <strong>Toque ou arraste fotos aqui</strong>
+            <small>PNG, JPG ou JPEG (máximo 6 arquivos)</small>
+          </label>
+          <input type="file" id="pubPhotos" accept="image/*" multiple style="display: none;" />
+          <div id="photosPreviewContainer"></div>
         </div>
 
         <div class="field">
@@ -994,15 +1159,24 @@ function showPublishForm(initialType = "Comprar e Vender") {
           const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
           selectedImagesBase64.push(dataUrl);
 
-          // Criar miniatura
+          // Criar miniatura moderna com botão de remover
           const thumb = document.createElement('div');
-          thumb.style.width = '60px';
-          thumb.style.height = '60px';
-          thumb.style.borderRadius = '8px';
-          thumb.style.border = '1px solid var(--border-color)';
+          thumb.className = 'photo-preview-item animate-fade-in';
           thumb.style.backgroundImage = `url('${dataUrl}')`;
-          thumb.style.backgroundSize = 'cover';
-          thumb.style.backgroundPosition = 'center';
+          
+          const removeBtn = document.createElement('button');
+          removeBtn.className = 'remove-btn';
+          removeBtn.innerHTML = '×';
+          removeBtn.type = 'button';
+          removeBtn.addEventListener('click', () => {
+            const index = selectedImagesBase64.indexOf(dataUrl);
+            if (index > -1) {
+              selectedImagesBase64.splice(index, 1);
+            }
+            thumb.remove();
+          });
+          
+          thumb.appendChild(removeBtn);
           previewContainer.appendChild(thumb);
         };
         img.src = event.target.result;
@@ -1023,24 +1197,49 @@ function showPublishForm(initialType = "Comprar e Vender") {
     const category = document.querySelector('#pubCategory').value;
     const price = document.querySelector('#pubPrice').value;
 
-    const res = await apiFetch('/api/publish', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type, title, description, price, category, images: selectedImagesBase64 })
-    });
+    const token = currentSession?.access_token;
+    const headers = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const userQuery = userParam ? `?user=${userParam}` : '';
 
-    if (res && res.success) {
-      alert("Publicado com sucesso!");
-      if (type === 'Mural') {
-        renderNews('Mural');
-        document.querySelectorAll('.bottom-nav .nav-item').forEach(item => {
-          item.classList.toggle('is-active', item.dataset.view === 'news');
-        });
+    try {
+      const response = await fetch(`/api/publish${userQuery}`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ type, title, description, price, category, images: selectedImagesBase64 })
+      });
+
+      if (response.ok) {
+        alert("Publicado com sucesso!");
+        if (type === 'Mural') {
+          renderNews('Mural');
+          document.querySelectorAll('.bottom-nav .nav-item').forEach(item => {
+            item.classList.toggle('is-active', item.dataset.view === 'news');
+          });
+        } else {
+          setView('explore');
+        }
       } else {
-        setView('explore');
+        const errBody = await response.json().catch(() => ({}));
+        if (response.status === 403 && (errBody.code === 'LIMIT_ADS' || errBody.code === 'LIMIT_MURAL')) {
+          const confirmUpgrade = confirm(`${errBody.message}\n\nDeseja ativar seu perfil Business agora para poder publicar?`);
+          if (confirmUpgrade) {
+            const upgradeRes = await fetch(`/api/profile/upgrade-business${userQuery}`, {
+              method: 'POST',
+              headers
+            });
+            if (upgradeRes.ok) {
+              alert("Perfil Business ativado com sucesso! Agora você pode publicar sem limites. Tente enviar sua publicação novamente.");
+            } else {
+              alert("Erro ao ativar perfil Business.");
+            }
+          }
+        } else {
+          alert(errBody.error || "Erro ao publicar anúncio.");
+        }
       }
-    } else {
-      alert("Erro ao publicar anúncio. Verifique o servidor.");
+    } catch (err) {
+      alert("Erro ao conectar com o servidor.");
     }
   });
 }
@@ -1453,8 +1652,13 @@ function showAddNewsForm() {
         
         <div class="field" id="adminNewsPhotoField">
           <span>Foto de Capa (Opcional)</span>
-          <input type="file" id="adminNewsPhoto" accept="image/*" />
-          <div id="adminNewsPhotoPreview" style="display: flex; gap: 8px; margin-top: 10px;"></div>
+          <label for="adminNewsPhoto" class="custom-file-upload">
+            <div class="upload-icon">🖼️</div>
+            <strong>Selecione uma imagem de capa</strong>
+            <small>PNG, JPG ou JPEG</small>
+          </label>
+          <input type="file" id="adminNewsPhoto" accept="image/*" style="display: none;" />
+          <div id="adminNewsPhotoPreview"></div>
         </div>
 
         <div class="field">
@@ -1514,13 +1718,22 @@ function showAddNewsForm() {
           selectedCoverImageBase64 = dataUrl;
 
           const thumb = document.createElement('div');
+          thumb.className = 'photo-preview-item animate-fade-in';
           thumb.style.width = '120px';
           thumb.style.height = '70px';
-          thumb.style.borderRadius = '8px';
-          thumb.style.border = '1px solid var(--border-color)';
           thumb.style.backgroundImage = `url('${dataUrl}')`;
-          thumb.style.backgroundSize = 'cover';
-          thumb.style.backgroundPosition = 'center';
+          
+          const removeBtn = document.createElement('button');
+          removeBtn.className = 'remove-btn';
+          removeBtn.innerHTML = '×';
+          removeBtn.type = 'button';
+          removeBtn.addEventListener('click', () => {
+            selectedCoverImageBase64 = null;
+            thumb.remove();
+            photoInput.value = '';
+          });
+          
+          thumb.appendChild(removeBtn);
           previewContainer.appendChild(thumb);
         };
         img.src = event.target.result;
@@ -1556,9 +1769,14 @@ function showAddNewsForm() {
 
 // --- MECANISMO DE NAVEGAÇÃO PRINCIPAL ---
 async function setView(view) {
-  if (!currentSession && !userParam) {
+  if (view !== 'home' && !currentSession && !userParam) {
     renderAuthScreen();
     return;
+  }
+
+  if (currentSession || userParam) {
+    const isComplete = await checkProfileRegistration();
+    if (!isComplete) return;
   }
 
   const bottomNav = document.querySelector('.bottom-nav');

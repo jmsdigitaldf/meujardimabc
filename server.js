@@ -82,6 +82,46 @@ async function syncUserToDatabase(supabaseUser) {
   }
 }
 
+// Helper to get active roles of a user
+async function getUserRoles(userId) {
+  try {
+    const res = await db.query("SELECT role FROM user_roles WHERE user_id = $1 AND status = 'active'", [userId]);
+    return res.rows.map(r => r.role);
+  } catch (err) {
+    console.error("Erro ao obter roles do usuário:", err);
+    return [];
+  }
+}
+
+// Helper to check if a user is registered and auto-sync if they registered via our local form
+async function checkAndSyncSessionUser(supabaseUser) {
+  if (!supabaseUser) return false;
+  const { id, email, phone, user_metadata } = supabaseUser;
+  try {
+    // 1. Verificar se o perfil já existe
+    const profileCheck = await db.query("SELECT id FROM profiles WHERE user_id = $1", [id]);
+    if (profileCheck.rows.length > 0) {
+      return true;
+    }
+
+    // 2. Se o perfil não existe, verificar se temos dados completos de cadastro nos metadados (como whatsapp e full_name)
+    const fullName = user_metadata?.full_name || user_metadata?.name || null;
+    const whatsapp = user_metadata?.whatsapp || phone || null;
+
+    if (fullName && whatsapp) {
+      // Tem dados completos (provavelmente cadastro via form do e-mail/senha), sincronizar automático
+      await syncUserToDatabase(supabaseUser);
+      return true;
+    }
+
+    // Não tem dados completos (login social do Google sem Whatsapp cadastrado localmente)
+    return false;
+  } catch (err) {
+    console.error("Erro ao checar e sincronizar usuário:", err);
+    return false;
+  }
+}
+
 // Middleware de Autenticação Segura
 app.use(async (req, res, next) => {
   if (!defaultUserId || !adminUserId) {
@@ -96,24 +136,18 @@ app.use(async (req, res, next) => {
       if (user && !error) {
         req.userId = user.id;
         req.user = user;
-        await syncUserToDatabase(user);
+        // Não chamamos syncUserToDatabase aqui de forma automática para novos usuários
       }
     } catch (err) {
       console.error("Erro na verificação do token Supabase:", err);
     }
   }
 
-  // Fallback opcional para query params (desenvolvimento / debug / testes locais)
+  // Fallback opcional para query params (somente admin é mantido como teste)
   if (!req.userId) {
     const userQuery = req.query.user;
-    if (userQuery === 'driver') {
-      req.userId = driverUserId;
-    } else if (userQuery === 'business') {
-      req.userId = businessUserId;
-    } else if (userQuery === 'admin') {
+    if (userQuery === 'admin') {
       req.userId = adminUserId;
-    } else if (userQuery === 'resident') {
-      req.userId = defaultUserId;
     }
   }
 
@@ -240,6 +274,47 @@ app.post('/api/publish', async (req, res) => {
   const cleanCategory = sanitize(category);
 
   try {
+    // Buscar roles ativas do usuário
+    const roles = await getUserRoles(req.userId);
+    const isAdmin = roles.includes('admin');
+    const isBusiness = roles.includes('business_owner');
+
+    // Se não for admin e não tiver perfil business, aplicar limites de residente
+    if (!isAdmin && !isBusiness) {
+      if (type === "Comprar e Vender") {
+        const adsCheck = await db.query(
+          `SELECT COUNT(*) FROM marketplace_ads 
+           WHERE seller_user_id = $1 
+           AND created_at >= date_trunc('month', now())`,
+          [req.userId]
+        );
+        const adsCount = parseInt(adsCheck.rows[0].count, 10);
+        if (adsCount >= 3) {
+          return res.status(403).json({
+            error: "Limite atingido",
+            code: "LIMIT_ADS",
+            message: "Como residente, você pode cadastrar até 3 produtos por mês. Ative o perfil Business para cadastrar mais."
+          });
+        }
+      } else if (type === "Mural") {
+        const newsCheck = await db.query(
+          `SELECT COUNT(*) FROM news 
+           WHERE author_user_id = $1 
+           AND category = 'Mural'
+           AND created_at >= date_trunc('month', now())`,
+          [req.userId]
+        );
+        const newsCount = parseInt(newsCheck.rows[0].count, 10);
+        if (newsCount >= 1) {
+          return res.status(403).json({
+            error: "Limite atingido",
+            code: "LIMIT_MURAL",
+            message: "Como residente, você pode postar no máximo 1 publicação no mural por mês. Ative o perfil Business para postar mais."
+          });
+        }
+      }
+    }
+
     if (type === "Comprar e Vender") {
       const priceCents = price ? Math.round(parseFloat(price) * 100) : null;
       const imageArray = (images && Array.isArray(images)) ? images : [];
@@ -360,6 +435,11 @@ app.get('/api/profile', async (req, res) => {
   if (!req.userId) return res.status(401).json({ error: "Não autenticado." });
 
   try {
+    const isRegistered = await checkAndSyncSessionUser(req.user);
+    if (!isRegistered) {
+      return res.status(404).json({ error: "Perfil incompleto.", isRegistered: false });
+    }
+
     const profileRes = await db.query(
       `SELECT p.full_name, p.display_name, p.whatsapp, p.neighborhood, u.email, u.phone, p.avatar_url
        FROM profiles p
@@ -369,15 +449,13 @@ app.get('/api/profile', async (req, res) => {
     );
 
     if (profileRes.rows.length === 0) {
-      return res.status(404).json({ error: "Perfil não encontrado." });
+      return res.status(404).json({ error: "Perfil não encontrado.", isRegistered: false });
     }
 
-    // Buscar capacidades de admin
-    const capRes = await db.query(
-      "SELECT can_admin FROM v_user_capabilities WHERE user_id = $1",
-      [req.userId]
-    );
-    const isAdmin = capRes.rows.length > 0 ? capRes.rows[0].can_admin : false;
+    // Buscar roles do usuário
+    const roles = await getUserRoles(req.userId);
+    const isAdmin = roles.includes('admin');
+    const isBusiness = roles.includes('business_owner');
 
     // Estatísticas dinâmicas
     const adsCount = await db.query("SELECT count(*) FROM marketplace_ads WHERE seller_user_id = $1", [req.userId]);
@@ -386,12 +464,106 @@ app.get('/api/profile', async (req, res) => {
     res.json({
       profile: profileRes.rows[0],
       isAdmin,
+      isBusiness,
+      isRegistered: true,
       stats: {
         ads: parseInt(adsCount.rows[0].count, 10),
         favorites: parseInt(favsCount.rows[0].count, 10)
       }
     });
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 7.1 POST /api/profile (Completar/Criar Perfil)
+app.post('/api/profile', async (req, res) => {
+  if (!req.userId) return res.status(401).json({ error: "Não autenticado." });
+
+  const { fullName, displayName, whatsapp, neighborhood } = req.body;
+  if (!fullName || !whatsapp) {
+    return res.status(400).json({ error: "Nome completo e Whatsapp são obrigatórios." });
+  }
+
+  const cleanFullName = sanitize(fullName);
+  const cleanDisplayName = sanitize(displayName || fullName.split(' ')[0]);
+  const cleanWhatsapp = sanitize(whatsapp);
+  const cleanNeighborhood = sanitize(neighborhood || 'Jardim ABC');
+
+  try {
+    // 1. Inserir/Atualizar na tabela users
+    const userCheck = await db.query("SELECT id FROM users WHERE id = $1", [req.userId]);
+    if (userCheck.rows.length === 0) {
+      await db.query(
+        `INSERT INTO users (id, email, phone, status, created_at, updated_at)
+         VALUES ($1, $2, $3, 'active', now(), now())`,
+        [req.userId, req.user?.email || null, req.user?.phone || null]
+      );
+    }
+
+    // 2. Inserir/Atualizar na tabela profiles
+    const profileCheck = await db.query("SELECT id FROM profiles WHERE user_id = $1", [req.userId]);
+    const avatarUrl = req.user?.user_metadata?.avatar_url || null;
+    
+    if (profileCheck.rows.length === 0) {
+      await db.query(
+        `INSERT INTO profiles (user_id, full_name, display_name, avatar_url, neighborhood, whatsapp, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, now(), now())`,
+        [req.userId, cleanFullName, cleanDisplayName, avatarUrl, cleanNeighborhood, cleanWhatsapp]
+      );
+    } else {
+      await db.query(
+        `UPDATE profiles 
+         SET full_name = $1, display_name = $2, neighborhood = $3, whatsapp = $4, updated_at = now()
+         WHERE user_id = $5`,
+        [cleanFullName, cleanDisplayName, cleanNeighborhood, cleanWhatsapp, req.userId]
+      );
+    }
+
+    // 3. Garantir a role 'resident' por padrão
+    const roleCheck = await db.query("SELECT id FROM user_roles WHERE user_id = $1 AND role = 'resident'", [req.userId]);
+    if (roleCheck.rows.length === 0) {
+      await db.query(
+        `INSERT INTO user_roles (user_id, role, status, created_at, updated_at)
+         VALUES ($1, 'resident', 'active', now(), now())`,
+        [req.userId]
+      );
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Erro ao completar perfil:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 7.2 POST /api/profile/upgrade-business (Ativar Perfil Business)
+app.post('/api/profile/upgrade-business', async (req, res) => {
+  if (!req.userId) return res.status(401).json({ error: "Não autenticado." });
+
+  try {
+    const roleCheck = await db.query(
+      "SELECT id FROM user_roles WHERE user_id = $1 AND role = 'business_owner'",
+      [req.userId]
+    );
+
+    if (roleCheck.rows.length === 0) {
+      await db.query(
+        `INSERT INTO user_roles (user_id, role, status, created_at, updated_at)
+         VALUES ($1, 'business_owner', 'active', now(), now())`,
+        [req.userId]
+      );
+    } else {
+      await db.query(
+        `UPDATE user_roles SET status = 'active', updated_at = now() 
+         WHERE user_id = $1 AND role = 'business_owner'`,
+        [req.userId]
+      );
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Erro ao fazer upgrade para business:", err);
     res.status(500).json({ error: err.message });
   }
 });
