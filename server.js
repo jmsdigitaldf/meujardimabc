@@ -9,7 +9,7 @@ const port = Number(process.env.PORT || 4173);
 
 app.use(express.json({ limit: '10mb' }));
 
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
+const supabase = createClient(process.env.SUPABASE_URL?.trim(), process.env.SUPABASE_ANON_KEY?.trim(), {
   realtime: {
     transport: WebSocket
   }
@@ -164,8 +164,8 @@ function sanitize(text) {
 // GET /api/config (Inicialização segura no frontend)
 app.get('/api/config', (req, res) => {
   res.json({
-    supabaseUrl: process.env.SUPABASE_URL,
-    supabaseAnonKey: process.env.SUPABASE_ANON_KEY
+    supabaseUrl: process.env.SUPABASE_URL?.trim(),
+    supabaseAnonKey: process.env.SUPABASE_ANON_KEY?.trim()
   });
 });
 
