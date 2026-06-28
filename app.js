@@ -5,7 +5,8 @@ const navItems = document.querySelectorAll("[data-view]");
 const testRoles = ['resident', 'driver', 'business', 'admin'];
 let currentRoleIndex = 0;
 const urlParams = new URLSearchParams(window.location.search);
-const userParam = urlParams.get('user');
+// O antigo bypass por ?user=... foi desativado; autenticação agora vem sempre do Supabase.
+const userParam = null;
 if (testRoles.includes(userParam)) {
   currentRoleIndex = testRoles.indexOf(userParam);
 }
@@ -28,13 +29,44 @@ let supabaseClient = null;
 let currentSession = null;
 let currentUser = null;
 
+function clearStaleSupabaseCallback() {
+  const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+  const searchParams = new URLSearchParams(window.location.search);
+  const expiresAt = Number(hashParams.get('expires_at') || 0);
+  const hasHashSession = hashParams.has('access_token') || hashParams.has('refresh_token');
+  const hasCodeCallback = searchParams.has('code');
+
+  if (hasHashSession && expiresAt && expiresAt <= Math.floor(Date.now() / 1000)) {
+    window.history.replaceState({}, document.title, window.location.pathname);
+    return;
+  }
+
+  if (hasCodeCallback && searchParams.has('error')) {
+    window.history.replaceState({}, document.title, window.location.pathname);
+  }
+}
+
 async function initSupabase() {
   try {
-    const config = await fetch('/api/config').then(r => r.json());
+    clearStaleSupabaseCallback();
+
+    const config = await fetch('/api/config', { cache: 'no-store' }).then(r => r.json());
     if (config.supabaseUrl && config.supabaseAnonKey) {
-      supabaseClient = window.supabase.createClient(config.supabaseUrl, config.supabaseAnonKey);
+      supabaseClient = window.supabase.createClient(config.supabaseUrl, config.supabaseAnonKey, {
+        auth: {
+          storageKey: 'jardimabc-auth-v2',
+          persistSession: true,
+          autoRefreshToken: true,
+          detectSessionInUrl: true
+        }
+      });
       
-      await supabaseClient.auth.getSession();
+      const { data: { session }, error } = await supabaseClient.auth.getSession();
+      if (error) {
+        console.warn("Aviso: não foi possível recuperar a sessão atual:", error.message);
+      }
+      currentSession = session;
+      currentUser = session?.user || null;
       
       supabaseClient.auth.onAuthStateChange(async (event, session) => {
         const previousSession = currentSession;
@@ -183,7 +215,10 @@ function renderAuthScreen() {
 
         <div id="authMessageContainer"></div>
 
-
+        <button type="button" class="google-btn" id="btnGoogleLogin">
+          Entrar com Google
+        </button>
+        <div class="divider">ou</div>
 
         <div class="auth-tabs">
           <button class="auth-tab active" id="tabLogin">Entrar</button>
@@ -219,7 +254,7 @@ function renderAuthScreen() {
           </div>
           <div class="field">
             <span>Whatsapp (DDD + Número)</span>
-            <input type="tel" id="regWhatsapp" placeholder="Ex: 61999999999" />
+            <input type="tel" id="regWhatsapp" placeholder="Ex: 61999999999" required />
           </div>
           <div class="field">
             <span>Senha (mínimo 6 caracteres)</span>
@@ -235,6 +270,7 @@ function renderAuthScreen() {
   const tabRegister = document.querySelector('#tabRegister');
   const frmLogin = document.querySelector('#frmLogin');
   const frmRegister = document.querySelector('#frmRegister');
+  const btnGoogleLogin = document.querySelector('#btnGoogleLogin');
 
   tabLogin.addEventListener('click', () => {
     tabLogin.classList.add('active');
@@ -250,7 +286,30 @@ function renderAuthScreen() {
     frmLogin.classList.add('hidden');
   });
 
+  function getFriendlyAuthError(error) {
+    const message = error?.message || 'Erro de autenticação.';
+    const status = error?.status || error?.__isAuthError && error.status;
+    if (status === 401 || /api key|jwt|unauthorized/i.test(message)) {
+      return 'Erro na configuração do Supabase: confira SUPABASE_URL e SUPABASE_ANON_KEY no arquivo .env e reinicie o servidor.';
+    }
+    return message;
+  }
 
+  btnGoogleLogin.addEventListener('click', async () => {
+    if (!supabaseClient) return showAuthMsg("Erro de inicialização.", "error");
+
+    showAuthMsg("Abrindo login do Google...", "success");
+    const { error } = await supabaseClient.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: `${window.location.origin}${window.location.pathname}`
+      }
+    });
+
+    if (error) {
+      showAuthMsg(getFriendlyAuthError(error), "error");
+    }
+  });
 
   frmLogin.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -261,7 +320,9 @@ function renderAuthScreen() {
     showAuthMsg("Entrando...", "success");
     const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
     if (error) {
-      showAuthMsg(error.message, "error");
+      showAuthMsg(getFriendlyAuthError(error), "error");
+    } else {
+      showAuthMsg("Login realizado. Carregando...", "success");
     }
   });
 
@@ -275,7 +336,7 @@ function renderAuthScreen() {
     if (!supabaseClient) return showAuthMsg("Erro de inicialização.", "error");
 
     showAuthMsg("Cadastrando...", "success");
-    const { error } = await supabaseClient.auth.signUp({
+    const { data, error } = await supabaseClient.auth.signUp({
       email,
       password,
       options: {
@@ -289,7 +350,9 @@ function renderAuthScreen() {
     });
 
     if (error) {
-      showAuthMsg(error.message, "error");
+      showAuthMsg(getFriendlyAuthError(error), "error");
+    } else if (data.session) {
+      showAuthMsg("Cadastro realizado! Carregando sua conta...", "success");
     } else {
       showAuthMsg("Cadastro realizado! Faça login com suas credenciais.", "success");
       tabLogin.click();
@@ -349,6 +412,15 @@ async function apiFetch(url, options = {}) {
       currentUser = null;
       renderAuthScreen();
       return null;
+    }
+
+    if (res.status === 403) {
+      const body = await res.json().catch(() => ({}));
+      if (body.isRegistered === false) {
+        renderCompleteProfileScreen();
+        return null;
+      }
+      throw new Error(body.error || "Acesso negado.");
     }
     
     if (!res.ok) {
@@ -935,15 +1007,18 @@ async function renderProfile() {
 
 // --- DETALHES DE ANÚNCIO (MARKETPLACE) ---
 async function showAdDetails(id) {
-  const ad = await apiFetch(`/api/ads/${id}`);
-  if (!ad) {
-    alert("Erro ao carregar detalhes do anúncio.");
+  if (!currentSession) {
+    setPostAuthRedirect({ type: 'adDetails', id: id });
+    renderAuthScreen();
     return;
   }
 
-  if (ad.is_featured && !currentSession && !userParam) {
-    setPostAuthRedirect({ type: 'adDetails', id: id });
-    renderAuthScreen();
+  const isComplete = await checkProfileRegistration();
+  if (!isComplete) return;
+
+  const ad = await apiFetch(`/api/ads/${id}`);
+  if (!ad) {
+    alert("Erro ao carregar detalhes do anúncio.");
     return;
   }
 
@@ -1038,7 +1113,7 @@ async function showNewsDetails(id) {
 
 // --- FORMULÁRIO DE PUBLICAÇÃO ---
 function showPublishForm(initialType = "Comprar e Vender") {
-  if (!currentSession && !userParam) {
+  if (!currentSession) {
     setPostAuthRedirect({ type: 'publish', initialType: initialType });
     renderAuthScreen();
     return;
@@ -1790,6 +1865,11 @@ function getAndClearPostAuthRedirect() {
 }
 
 async function handlePostAuthRedirect() {
+  if (currentSession) {
+    const isComplete = await checkProfileRegistration();
+    if (!isComplete) return;
+  }
+
   const target = getAndClearPostAuthRedirect();
   if (!target) {
     setView('home');
@@ -1813,13 +1893,13 @@ async function handlePostAuthRedirect() {
 async function setView(view) {
   const publicViews = ['home', 'explore', 'news', 'bus'];
 
-  if (!publicViews.includes(view) && !currentSession && !userParam) {
+  if (!publicViews.includes(view) && !currentSession) {
     setPostAuthRedirect({ type: 'view', name: view });
     renderAuthScreen();
     return;
   }
 
-  if (currentSession || userParam) {
+  if (currentSession) {
     const isComplete = await checkProfileRegistration();
     if (!isComplete) return;
   }
@@ -1859,12 +1939,10 @@ document.body.addEventListener("click", (event) => {
 // Inicialização segura com Supabase e carregamento da Home
 initSupabase().then(() => {
   const activeView = document.querySelector('.nav-item.is-active')?.dataset.view;
-  if (!activeView) {
-    const hasRedirect = sessionStorage.getItem('postAuthRedirect');
-    if (hasRedirect && (currentSession || userParam)) {
-      handlePostAuthRedirect();
-    } else {
-      setView("home");
-    }
+  const hasRedirect = sessionStorage.getItem('postAuthRedirect');
+  if (hasRedirect && currentSession) {
+    handlePostAuthRedirect();
+  } else {
+    setView(activeView || "home");
   }
 });

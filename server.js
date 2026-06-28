@@ -1,8 +1,10 @@
 import express from 'express';
 import db from './db.js';
-import 'dotenv/config';
+import dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
 import WebSocket from 'ws';
+
+dotenv.config({ override: true, quiet: true });
 
 const app = express();
 const port = Number(process.env.PORT || 4173);
@@ -14,6 +16,22 @@ const supabase = createClient(process.env.SUPABASE_URL?.trim(), process.env.SUPA
     transport: WebSocket
   }
 });
+
+function getDatabaseHost() {
+  try {
+    return new URL(process.env.DATABASE_URL?.trim()).hostname;
+  } catch (err) {
+    return null;
+  }
+}
+
+function getSupabaseProjectRef() {
+  try {
+    return new URL(process.env.SUPABASE_URL?.trim()).hostname.split('.')[0];
+  } catch (err) {
+    return null;
+  }
+}
 
 // Obter IDs dos usuários reais do banco para retrocompatibilidade
 let defaultUserId = null;
@@ -144,14 +162,6 @@ app.use(async (req, res, next) => {
     }
   }
 
-  // Fallback opcional para query params (somente admin é mantido como teste)
-  if (!req.userId) {
-    const userQuery = req.query.user;
-    if (userQuery === 'admin') {
-      req.userId = adminUserId;
-    }
-  }
-
   next();
 });
 
@@ -163,10 +173,31 @@ function sanitize(text) {
 
 // GET /api/config (Inicialização segura no frontend)
 app.get('/api/config', (req, res) => {
+  res.set('Cache-Control', 'no-store');
   res.json({
     supabaseUrl: process.env.SUPABASE_URL?.trim(),
     supabaseAnonKey: process.env.SUPABASE_ANON_KEY?.trim()
   });
+});
+
+app.get('/api/health', async (req, res) => {
+  const health = {
+    ok: true,
+    supabaseProject: getSupabaseProjectRef(),
+    databaseHost: getDatabaseHost(),
+    database: 'unknown'
+  };
+
+  try {
+    await db.query('select 1');
+    health.database = 'connected';
+  } catch (err) {
+    health.ok = false;
+    health.database = 'error';
+    health.databaseError = err.code || err.message;
+  }
+
+  res.status(health.ok ? 200 : 500).json(health);
 });
 
 // --- API ENDPOINTS ---
@@ -186,7 +217,7 @@ app.get('/api/feed', async (req, res) => {
 
     // Produtos adicionados hoje
     const productsRes = await db.query(
-      `SELECT m.id, m.title, m.price_cents, m.category, m.image_urls, p.neighborhood, p.whatsapp
+      `SELECT m.id, m.title, m.price_cents, m.category, m.image_urls, p.neighborhood
        FROM marketplace_ads m
        JOIN profiles p ON p.user_id = m.seller_user_id
        WHERE m.status = 'approved'
@@ -216,8 +247,8 @@ app.get('/api/ads', async (req, res) => {
   const { category, search } = req.query;
   try {
     let query = `
-      SELECT m.id, m.title, m.description, m.category, m.price_cents, m.image_urls, m.is_featured,
-             p.whatsapp, p.neighborhood, p.full_name as seller_name
+      SELECT m.id, m.title, m.category, m.price_cents, m.image_urls, m.is_featured,
+             p.neighborhood, p.full_name as seller_name
       FROM marketplace_ads m
       JOIN profiles p ON p.user_id = m.seller_user_id
       WHERE m.status = 'approved'
@@ -245,7 +276,14 @@ app.get('/api/ads', async (req, res) => {
 
 // 3. GET /api/ads/:id (Detalhe do Anúncio)
 app.get('/api/ads/:id', async (req, res) => {
+  if (!req.userId) return res.status(401).json({ error: "Faça login para ver os detalhes do anúncio." });
+
   try {
+    const isRegistered = await checkAndSyncSessionUser(req.user);
+    if (!isRegistered) {
+      return res.status(403).json({ error: "Complete seu cadastro para ver os detalhes do anúncio.", isRegistered: false });
+    }
+
     const query = `
       SELECT m.id, m.title, m.description, m.category, m.price_cents, m.image_urls, m.is_featured,
              p.whatsapp, p.neighborhood, p.full_name as seller_name, to_char(m.created_at, 'DD/MM/YYYY') as date
@@ -777,9 +815,21 @@ app.use((req, res, next) => {
   next();
 });
 
-// Servir frontend estático
-app.use(express.static('.'));
+// Servir frontend estático sem cache para evitar app.js antigo durante ajustes de autenticação.
+app.use(express.static('.', {
+  etag: false,
+  lastModified: false,
+  setHeaders(res, filePath) {
+    if (/\.(html|js|css)$/i.test(filePath)) {
+      res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+      res.set('Pragma', 'no-cache');
+      res.set('Expires', '0');
+    }
+  }
+}));
 
 app.listen(port, () => {
   console.log(`[Jardim ABC] Servidor rodando em http://localhost:${port}`);
+  console.log(`[Jardim ABC] Supabase project: ${getSupabaseProjectRef() || 'não configurado'}`);
+  console.log(`[Jardim ABC] Database host: ${getDatabaseHost() || 'não configurado'}`);
 });
